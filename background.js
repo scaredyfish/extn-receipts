@@ -1,14 +1,62 @@
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(async (request, sender) => {
     if (request.action === 'capture') {
-        chrome.tabs.captureVisibleTab({ format: 'png' }, (dataUrl) => {
-            chrome.storage.local.set({ screenshotDataUrl: dataUrl }, () => {
-   //             chrome.tabs.create({ url: chrome.runtime.getURL('screenshot.html') });
-            });
-        });
+        try {
+            cropImage(request.selectionBox);
+        } catch (error) {
+            console.error(error);
+        }
     }
 });
 
-chrome.action.onClicked.addListener((tab) => {
+async function dataUriToImageBitmap(dataUri) {
+    const response = await fetch(dataUri);
+    const blob = await response.blob();
+    const imageBitmap = await createImageBitmap(blob);
+    return imageBitmap;
+}
+
+async function offscreenCanvasToDataUri(canvas) {
+    const blob = await canvas.convertToBlob();
+    const dataUrl = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+    });
+    return dataUrl;
+}
+
+async function cropImage(selectionBox) {
+    try {
+        const result = await chrome.storage.local.get(['screenshotDataUrl']);
+        const image = await dataUriToImageBitmap(result.screenshotDataUrl);
+
+        const canvas = new OffscreenCanvas(selectionBox.width, selectionBox.height);
+        const context = canvas.getContext('2d');
+        context.drawImage(image, selectionBox.left, selectionBox.top, selectionBox.width, selectionBox.height, 0, 0, selectionBox.width, selectionBox.height);
+        await chrome.storage.local.set({ screenshotDataUrl: await offscreenCanvasToDataUri(canvas) });
+        chrome.tabs.create({ url: chrome.runtime.getURL('screenshot.html') });
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+async function saveImage() {
+    try {
+        const result = await chrome.storage.local.get(['screenshotDataUrl']);
+        const link = document.createElement('a');
+        link.href = result.screenshotDataUrl;
+        link.download = 'screenshot.png';
+        link.click();
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+
+chrome.action.onClicked.addListener(async (tab) => {
+    const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'png' });
+    await chrome.storage.local.set({ screenshotDataUrl: dataUrl });
+
     chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: startDrawing
@@ -19,6 +67,7 @@ function startDrawing() {
     let isDrawing = false;
     let startCoordinates = { x: 0, y: 0 };
     let selectionBox = null;
+    let savedUserSelect = document.body.style.userSelect;
 
     document.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('mousemove', handleMouseMove);
@@ -30,7 +79,7 @@ function startDrawing() {
         const scrollY = window.pageYOffset || document.documentElement.scrollTop;
         startCoordinates = { x: event.clientX + scrollX, y: event.clientY + scrollY };
 
-  //      document.body.style.userSelect = 'none';
+        document.body.style.userSelect = 'none';
 
         // Create a new selection box element
         selectionBox = document.createElement('div');
@@ -70,15 +119,54 @@ function startDrawing() {
         // Find elements inside the selection box
         const elementsInBox = findElementsInsideSelectionBox(selectionBox);
         console.log(elementsInBox);
-        document.getSelection().removeAllRanges()
+     //   document.getSelection().removeAllRanges()
 
         // Capture the screenshot of the selected area
-        chrome.runtime.sendMessage({ action: 'capture' });
+        chrome.runtime.sendMessage({ action: 'capture', selectionBox: selectionBox.getBoundingClientRect() });
 
         // Remove the selection box element
         if (selectionBox) {
             selectionBox.remove();
             selectionBox = null;
+        }
+
+        document.body.style.userSelect = savedUserSelect
+    }
+
+    function isWhitespace(text) {
+        return !/[^\t\n\r ]/.test(text);
+    }
+
+    function traverseNodes(node, range, elementsInBox, selectionBox) {
+        if (node.nodeType == 3) { // If the node is a text node
+            if (range.intersectsNode(node)) {
+                if (isWhitespace(node.textContent)) {
+                    console.log('ignoring whitespace');
+                } else {
+                    console.log('traversing:', node)
+                    elementsInBox.push(node.parentNode);
+                }
+
+                
+            }
+        } else if (node.nodeType == 1) { // If the node is an element node
+            selectionRect = selectionBox.getBoundingClientRect();
+
+            nodeRect = node.getBoundingClientRect();
+
+            // check if the element is inside the selection box
+            if (nodeRect.top > selectionRect.top && nodeRect.bottom < selectionRect.bottom && nodeRect.left > selectionRect.left && nodeRect.right < selectionRect.right) {
+                node.style.background = 'green';
+                elementsInBox.push(node);
+                console.log('traversing:', node)
+            } else if (nodeRect.top < selectionRect.bottom && nodeRect.bottom > selectionRect.top && nodeRect.left < selectionRect.right && nodeRect.right > selectionRect.left) {
+                node.style.background = 'red';
+                for (const child of node.childNodes) {
+                    traverseNodes(child, range, elementsInBox, selectionBox);
+                }
+            }
+        } else {
+            console.log(node.nodeType);
         }
     }
 
@@ -93,21 +181,20 @@ function startDrawing() {
         const boxBottom = boxRect.bottom;
       
         // Create a range based on the selection box coordinates
-        const range = document.createRange();
-        range.setStart(document.elementFromPoint(boxLeft, boxTop) || document.body, 0);
-        range.setEnd(document.elementFromPoint(boxRight, boxBottom) || document.body, 1);
+        const range = document.caretRangeFromPoint(boxLeft, boxTop);
+        range.setEnd(document.caretRangeFromPoint(boxRight, boxBottom).endContainer, document.caretRangeFromPoint(boxRight, boxBottom).endOffset);
+
+        // traverse all child nodes
+        traverseNodes(range.commonAncestorContainer, range, elementsInBox, selectionBox);
       
-        console.log(range.toString());
-        console.log(range.commonAncestorContainer);
-        // Iterate through all elements within the range
-        const elementsInRange = range.commonAncestorContainer.getElementsByTagName('*');
-        for (const element of elementsInRange) {
-          // Check if the element's range intersects with the selection box range
-          if (range.intersectsNode(element)) {
-            elementsInBox.push(element);
-          }
-        }
-      
+        let text = '';
+
+        elementsInBox.forEach(node => {
+          text += node.textContent + '\n';
+        });
+
+        chrome.storage.local.set({ 'textContent' : text });
+
         return elementsInBox;
       }
       
