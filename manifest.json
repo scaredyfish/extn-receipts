@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "name": "Screenshot Extension",
     "version": "1.0",
-    "description": "Capture a screenshot of a selected area in the current tab",
+    "description": "Capture a screenshot of a selected area in the current tab. https://www.flaticon.com/free-icons/snip Snip icons created by Komar Dews - Flaticon, https://www.flaticon.com/free-icons/copy Copy icons created by Ongicon - Flaticon",
     "permissions": [
       "activeTab",
       "storage",

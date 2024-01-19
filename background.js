@@ -10,6 +10,7 @@ chrome.runtime.onMessage.addListener(async (request, sender) => {
     }
 });
 
+// unused function to maybe embed metadata into the png
 async function dataUriToPng(dataUri) {
     const response = await fetch(dataUri);
 
@@ -67,8 +68,14 @@ async function cropImage(selectionBox) {
 
         await chrome.storage.local.set({ screenshotDataUrl: uri });
 
-        chrome.downloads.download({url: uri, filename: 'test.png'});
-      //  const newtab = await chrome.tabs.create({ url: chrome.runtime.getURL('screenshot.html') });
+        // create a new popup window
+        const window = await chrome.windows.create({
+            url: chrome.runtime.getURL('screenshot.html'),
+            type: 'popup',
+            width: selectionBox.width,
+            height: selectionBox.height * 2
+        });
+
 
 
     } catch (error) {
@@ -160,14 +167,40 @@ function startDrawing() {
         return !/[^\t\n\r ]/.test(text);
     }
 
+    function findImages(node, elementsInBox) {
+        if (node.nodeType == 1) { // If the node is an element node
+            if (node.tagName === 'IMG') {
+                console.log('pushing:', node)
+                elementsInBox.push(node);
+            } else {
+                for (const child of node.childNodes) {
+                    findImages(child, elementsInBox);
+                }
+            }
+        }
+    }
+
+    function pushIfNotInArray(array, element) {
+        // check if the element is the child of another element in the array
+        for (const item of array) {
+            if (item.contains(element)) {
+                return;
+            }
+        }
+        
+        if (!array.includes(element)) {
+            array.push(element);
+        }
+    }
+
     function traverseNodes(node, range, elementsInBox, selectionBox) {
         if (node.nodeType == 3) { // If the node is a text node
             if (range.intersectsNode(node)) {
                 if (isWhitespace(node.textContent)) {
                     console.log('ignoring whitespace');
                 } else {
-                    console.log('traversing:', node)
-                    elementsInBox.push(node.parentNode);
+                    console.log('pushing:', node)
+                    pushIfNotInArray(elementsInBox, node.parentNode);
                 }
             }
         } else if (node.nodeType == 1) { // If the node is an element node
@@ -178,10 +211,13 @@ function startDrawing() {
             // check if the element is inside the selection box
             if (nodeRect.top > selectionRect.top && nodeRect.bottom < selectionRect.bottom && nodeRect.left > selectionRect.left && nodeRect.right < selectionRect.right) {
                 // node.style.background = 'green';
-                elementsInBox.push(node);
-                console.log('traversing:', node)
+                pushIfNotInArray(elementsInBox, node);
+                console.log('pushing:', node)
+                findImages(node, elementsInBox);
             } else if (nodeRect.top < selectionRect.bottom && nodeRect.bottom > selectionRect.top && nodeRect.left < selectionRect.right && nodeRect.right > selectionRect.left) {
-                // node.style.background = 'red';
+                
+                console.log('traversing:', node)
+
                 for (const child of node.childNodes) {
                     traverseNodes(child, range, elementsInBox, selectionBox);
                 }
@@ -211,7 +247,11 @@ function startDrawing() {
         let text = '';
 
         elementsInBox.forEach(node => {
-          text += node.textContent + '\n';
+            if (node.tagName === 'IMG') {
+                text += node.alt + '\n';
+            } else {
+                text += node.textContent + '\n';
+            }
         });
 
         chrome.storage.local.set({ 'textContent' : text });

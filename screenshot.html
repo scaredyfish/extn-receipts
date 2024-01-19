@@ -1,20 +1,57 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <title>Screenshot Preview</title>
-  <style>
 
+<head>
+  <title>Screenshot</title>
+  <style>
     img {
       max-width: 100%;
       height: auto;
     }
+
+    textarea {
+      width: 100%;
+      font: 1em sans-serif;
+    }
+
+    .btnCopy {
+      position: absolute;
+      top: 0;
+      right: 0;
+      background:none;
+      border: none;
+      opacity: 0.5;
+    }
+
+    .btnCopy:hover {
+      opacity: 1;
+    }
+
+    .btnCopy:active {
+      transform: scale(0.9);
+    }
+
+    .container {
+      position: relative;
+    }
   </style>
 </head>
-<body>
-  <h2>Screenshot Preview</h2>
-  <img id="screenshot" src="" alt="Screenshot">
 
-  <textarea id="content" rows="20" cols="50"></textarea>
+<body>
+  <div class="container">
+    <img id="screenshot" src="" alt="Screenshot">
+    <button id="copyImageToClipboard" class="btnCopy"><img title="Copy image to clipboard" src="icons/copy.png"></button>
+  </div>
+  <div class="container">
+    <textarea id="content" rows="10"></textarea>
+    <button id="copyTextToClipboard" class="btnCopy"><img src="icons/copy.png" title="Copy text to clipboard"></button>
+  </div>
+
+<div>
+  <button id="download">Download</button>
+</div>
+
   <script src="screenshot.js"></script>
 </body>
+
 </html>
