@@ -1,3 +1,5 @@
+import '/pngjs/browser.js';
+
 chrome.runtime.onMessage.addListener(async (request, sender) => {
     if (request.action === 'capture') {
         try {
@@ -7,6 +9,34 @@ chrome.runtime.onMessage.addListener(async (request, sender) => {
         }
     }
 });
+
+async function dataUriToPng(dataUri) {
+    const response = await fetch(dataUri);
+
+    let buf = await response.arrayBuffer();
+
+    let p = new png.PNG({ filterType: 4 }).parse(buf,async (error, data) => {
+        if (error) {
+            console.error(error);
+        } else {
+            data.tEXt = { Description: "this is a test" };
+            console.log(data);
+
+            const pngBuffer = png.PNG.sync.write(data);
+
+            // Create a Blob from the Buffer
+            const blob = new Blob([new Uint8Array(pngBuffer)], { type: 'image/png' });
+
+            const dataUrl = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(blob);
+            });
+
+            await chrome.storage.local.set({ screenshotDataUrl: dataUrl });
+        }
+    });
+}
 
 async function dataUriToImageBitmap(dataUri) {
     const response = await fetch(dataUri);
@@ -33,25 +63,18 @@ async function cropImage(selectionBox) {
         const canvas = new OffscreenCanvas(selectionBox.width, selectionBox.height);
         const context = canvas.getContext('2d');
         context.drawImage(image, selectionBox.left, selectionBox.top, selectionBox.width, selectionBox.height, 0, 0, selectionBox.width, selectionBox.height);
-        await chrome.storage.local.set({ screenshotDataUrl: await offscreenCanvasToDataUri(canvas) });
-        chrome.tabs.create({ url: chrome.runtime.getURL('screenshot.html') });
+        const uri = await offscreenCanvasToDataUri(canvas)
+
+        await chrome.storage.local.set({ screenshotDataUrl: uri });
+
+        chrome.downloads.download({url: uri, filename: 'test.png'});
+      //  const newtab = await chrome.tabs.create({ url: chrome.runtime.getURL('screenshot.html') });
+
+
     } catch (error) {
         console.error(error);
     }
 }
-
-async function saveImage() {
-    try {
-        const result = await chrome.storage.local.get(['screenshotDataUrl']);
-        const link = document.createElement('a');
-        link.href = result.screenshotDataUrl;
-        link.download = 'screenshot.png';
-        link.click();
-    } catch (error) {
-        console.error(error);
-    }
-}
-
 
 chrome.action.onClicked.addListener(async (tab) => {
     const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'png' });
@@ -146,8 +169,6 @@ function startDrawing() {
                     console.log('traversing:', node)
                     elementsInBox.push(node.parentNode);
                 }
-
-                
             }
         } else if (node.nodeType == 1) { // If the node is an element node
             selectionRect = selectionBox.getBoundingClientRect();
@@ -156,11 +177,11 @@ function startDrawing() {
 
             // check if the element is inside the selection box
             if (nodeRect.top > selectionRect.top && nodeRect.bottom < selectionRect.bottom && nodeRect.left > selectionRect.left && nodeRect.right < selectionRect.right) {
-                node.style.background = 'green';
+                // node.style.background = 'green';
                 elementsInBox.push(node);
                 console.log('traversing:', node)
             } else if (nodeRect.top < selectionRect.bottom && nodeRect.bottom > selectionRect.top && nodeRect.left < selectionRect.right && nodeRect.right > selectionRect.left) {
-                node.style.background = 'red';
+                // node.style.background = 'red';
                 for (const child of node.childNodes) {
                     traverseNodes(child, range, elementsInBox, selectionBox);
                 }
